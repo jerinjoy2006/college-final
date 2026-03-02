@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Profile — EventHub</title>
+    <link rel="stylesheet" href="/css/style.css" />
+</head>
+
+<body>
+    <nav>
+        <div class="container nav-inner">
+            <a href="/" class="nav-logo">⚡ EventHub</a>
+            <div class="nav-links" id="nav-auth"></div>
+        </div>
+    </nav>
+
+    <div class="container page-content">
+        <div class="profile-card">
+            <div class="card mb-3">
+                <h2 style="margin-bottom:1.25rem">👤 My Profile</h2>
+                <div class="profile-info" id="profile-info">
+                    <div class="profile-field"><label>Full Name</label>
+                        <p id="p-name">—</p>
+                    </div>
+                    <div class="profile-field"><label>Email</label>
+                        <p id="p-email">—</p>
+                    </div>
+                    <div class="profile-field"><label>Branch</label>
+                        <p id="p-branch">—</p>
+                    </div>
+                    <div class="profile-field"><label>Semester</label>
+                        <p id="p-semester">—</p>
+                    </div>
+                    <div class="profile-field"><label>Role</label>
+                        <p id="p-role">—</p>
+                    </div>
+                    <div class="profile-field"><label>Joined</label>
+                        <p id="p-joined">—</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3 style="margin-bottom:1rem">📋 My Registered Events</h3>
+                <div id="my-events">
+                    <div style="text-align:center;padding:2rem">
+                        <div class="spinner"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast-container"></div>
+
+    <script type="module">
+        import { registrationsAPI, isLoggedIn, getUser } from '/js/api.js';
+        import { updateNav, formatDate, categoryChip, toast } from '/js/ui.js';
+
+        updateNav();
+        if (!isLoggedIn()) { window.location.href = '/'; }
+
+        const user = getUser();
+        document.getElementById('p-name').textContent = user?.full_name || '—';
+        document.getElementById('p-email').textContent = user?.email || '—';
+        document.getElementById('p-branch').textContent = user?.branch || '—';
+        document.getElementById('p-semester').textContent = user?.semester || '—';
+        document.getElementById('p-role').textContent = user?.role === 'admin' ? 'Admin' : 'Student';
+        document.getElementById('p-joined').textContent = user?.created_at ? formatDate(user.created_at) : '—';
+
+        async function loadMyEvents() {
+            const container = document.getElementById('my-events');
+            try {
+                const regs = await registrationsAPI.myRegistrations();
+                if (!regs.length) {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-icon">🏖️</div>
+                            <h3>No registrations yet</h3>
+                            <p>Browse events and register for something exciting!</p>
+                            <a href="/events.html" class="btn btn-primary mt-2" style="display:inline-flex">Explore Events</a>
+                        </div>`;
+                    return;
+                }
+                container.innerHTML = `
+                    <div class="table-wrap">
+                        <table>
+                            <thead><tr><th>Event</th><th>Category</th><th>Date</th><th>Actions</th></tr></thead>
+                            <tbody>${regs.map(r => `
+                                <tr>
+                                    <td>
+                                        <div style="font-weight:600">${r.events.title}</div>
+                                        <div class="text-muted" style="font-size:0.75rem">${r.events.clubs?.name || ''}</div>
+                                    </td>
+                                    <td>${categoryChip(r.events.category)}</td>
+                                    <td class="text-muted" style="white-space:nowrap">${formatDate(r.events.event_date)}</td>
+                                    <td>
+                                        <div class="flex gap-1">
+                                            <a href="/event-detail.html?id=${r.events.id}" class="btn btn-secondary btn-sm">View</a>
+                                            <button class="btn btn-danger btn-sm" onclick="cancelReg('${r.id}')">Cancel</button>
+                                        </div>
+                                    </td>
+                                </tr>`).join('')}
+                            </tbody>
+                        </table>
+                    </div>`;
+            } catch (e) {
+                container.innerHTML = `<div class="empty-state"><p class="text-danger">${e.message}</p></div>`;
+            }
+        }
+
+        window.cancelReg = async (id) => {
+            if (!confirm('Cancel your registration?')) return;
+            try {
+                await registrationsAPI.cancel(id);
+                toast('Registration cancelled.', 'info');
+                loadMyEvents();
+            } catch (err) { toast(err.message, 'error'); }
+        };
+
+        loadMyEvents();
+    </script>
+</body>
+
+</html>

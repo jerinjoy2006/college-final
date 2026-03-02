@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EventHub — College Event Portal</title>
+  <meta name="description" content="Discover and register for events across all college clubs in one place." />
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+
+<body>
+  <!-- NAV -->
+  <nav>
+    <div class="container nav-inner">
+      <a href="/" class="nav-logo">⚡ EventHub</a>
+      <div class="nav-links" id="nav-auth"></div>
+    </div>
+  </nav>
+
+  <div class="container page-content">
+    <!-- HERO -->
+    <section class="hero">
+      <h1>Discover Events <span class="hero-gradient">Across All Clubs</span></h1>
+      <p>Browse hackathons, workshops, competitions and more — all from your campus clubs in one place.</p>
+      <div class="flex gap-1" style="justify-content:center;flex-wrap:wrap">
+        <a href="/events.html" class="btn btn-primary">Browse Events</a>
+        <button class="btn btn-secondary" id="hero-cta-reg" onclick="openModal('signup-modal')">Join Now</button>
+        <a href="/admin-login.html" class="btn btn-secondary">Create Event</a>
+      </div>
+    </section>
+
+    <!-- UPCOMING EVENTS SLIDESHOW -->
+    <div class="slideshow" id="slideshow">
+      <div class="slideshow-track" id="slideshow-track"></div>
+    </div>
+    <div class="slideshow-dots" id="slideshow-dots"></div>
+  </div>
+
+  <!-- ─── LOGIN MODAL ─────────────────────────────────────────── -->
+  <div class="modal-overlay" id="login-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <div>
+          <h3>Welcome Back</h3>
+          <p class="text-muted" style="font-size:0.82rem">Sign in to your account</p>
+        </div>
+        <button class="modal-close" onclick="closeModal('login-modal')">×</button>
+      </div>
+      <form id="login-form" class="modal-stack">
+        <div class="form-group">
+          <label>Email</label>
+          <input class="form-control" id="login-email" type="email" placeholder="you@college.edu" required />
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <div class="password-wrap">
+            <input class="form-control" id="login-password" type="password" placeholder="••••••••" required />
+            <button type="button" class="password-toggle" onclick="togglePassword('login-password', this)">👁️</button>
+          </div>
+        </div>
+        <button class="btn btn-primary btn-block" type="submit" id="login-btn">Sign In</button>
+        <p class="text-muted" style="text-align:center;font-size:0.82rem">
+          Don't have an account?
+          <a href="#" style="color:var(--accent);font-weight:600"
+            onclick="closeModal('login-modal');openModal('signup-modal');return false">Sign up</a>
+        </p>
+      </form>
+    </div>
+  </div>
+
+  <!-- ─── SIGNUP MODAL ────────────────────────────────────────── -->
+  <div class="modal-overlay" id="signup-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <div>
+          <h3>Create Account</h3>
+          <p class="text-muted" style="font-size:0.82rem">Join to register for campus events</p>
+        </div>
+        <button class="modal-close" onclick="closeModal('signup-modal')">×</button>
+      </div>
+      <form id="signup-form" class="modal-stack">
+        <div class="form-group">
+          <label>Full Name</label>
+          <input class="form-control" id="signup-name" type="text" placeholder="Jane Doe" required />
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
+          <div class="form-group">
+            <label>Branch</label>
+            <input class="form-control" id="signup-branch" type="text" placeholder="Computer Science" required />
+          </div>
+          <div class="form-group">
+            <label>Semester</label>
+            <select class="form-control" id="signup-semester" required>
+              <option value="">Select</option>
+              <option>1</option>
+              <option>2</option>
+              <option>3</option>
+              <option>4</option>
+              <option>5</option>
+              <option>6</option>
+              <option>7</option>
+              <option>8</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>College Email</label>
+          <input class="form-control" id="signup-email" type="email" placeholder="you@college.edu" required />
+        </div>
+        <div class="form-group">
+          <label>Password <span class="text-muted" style="font-weight:400">(min 6 chars)</span></label>
+          <div class="password-wrap">
+            <input class="form-control" id="signup-password" type="password" placeholder="••••••••" required
+              minlength="6" />
+            <button type="button" class="password-toggle" onclick="togglePassword('signup-password', this)">👁️</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Confirm Password</label>
+          <div class="password-wrap">
+            <input class="form-control" id="signup-confirm" type="password" placeholder="••••••••" required
+              minlength="6" />
+            <button type="button" class="password-toggle" onclick="togglePassword('signup-confirm', this)">👁️</button>
+          </div>
+        </div>
+        <button class="btn btn-primary btn-block" type="submit" id="signup-btn">Create Account</button>
+        <p class="text-muted" style="text-align:center;font-size:0.82rem">
+          Already have an account?
+          <a href="#" style="color:var(--accent);font-weight:600"
+            onclick="closeModal('signup-modal');openModal('login-modal');return false">Sign in</a>
+        </p>
+      </form>
+    </div>
+  </div>
+
+  <div id="toast-container"></div>
+
+  <script type="module">
+    import { eventsAPI, clubsAPI, authAPI, setAuth, isLoggedIn, isAdmin, getUser } from '/js/api.js';
+    import { updateNav, buildEventCard, toast, formatDate } from '/js/ui.js';
+
+    updateNav();
+
+    // Hide hero CTA if already logged in
+    if (isLoggedIn()) {
+      const el = document.getElementById('hero-cta-reg');
+      if (el) el.style.display = 'none';
+    }
+
+    let registeredIds = new Set();
+    let allEvents = [];
+    let typingTimer;
+
+    async function init() {
+      try {
+        allEvents = await eventsAPI.list().catch(() => []);
+        renderSlideshow(allEvents);
+      } catch { }
+    }
+
+    // ─── Slideshow ─────────────────────────────────────────
+    function renderSlideshow(events) {
+      const upcoming = events
+        .filter(e => new Date(e.event_date) > new Date())
+        .slice(0, 5);
+      if (!upcoming.length) {
+        document.getElementById('slideshow').style.display = 'none';
+        return;
+      }
+      const track = document.getElementById('slideshow-track');
+      const dots = document.getElementById('slideshow-dots');
+      track.innerHTML = upcoming.map(e => `
+                <div class="slideshow-slide">
+                    <span class="chip chip-accent">${e.category}</span>
+                    <h3>${e.title}</h3>
+                    <p class="text-muted" style="font-size:0.85rem">📅 ${formatDate(e.event_date)} ${e.venue ? '· 📍 ' + e.venue : ''}</p>
+                    <p style="font-size:0.85rem">${e.description ? e.description.substring(0, 100) + '…' : ''}</p>
+                    <a href="/event-detail.html?id=${e.id}" class="btn btn-primary btn-sm" style="margin-top:0.5rem">View Details →</a>
+                </div>
+            `).join('');
+      dots.innerHTML = upcoming.map((_, i) =>
+        `<button class="slideshow-dot ${i === 0 ? 'active' : ''}" onclick="goSlide(${i})"></button>`
+      ).join('');
+
+      let current = 0;
+      window.goSlide = (i) => {
+        current = i;
+        track.style.transform = `translateX(-${i * 100}%)`;
+        dots.querySelectorAll('.slideshow-dot').forEach((d, idx) => d.classList.toggle('active', idx === i));
+      };
+      setInterval(() => window.goSlide((current + 1) % upcoming.length), 4500);
+    }
+
+    // ─── Login handler ─────────────────────────────────────
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('login-btn');
+      btn.disabled = true; btn.innerHTML = '<span class="spinner spinner-dark"></span> Signing in…';
+      try {
+        const { access_token, user } = await authAPI.login({
+          email: document.getElementById('login-email').value.trim(),
+          password: document.getElementById('login-password').value,
+        });
+        setAuth(access_token, user);
+        toast('Login successful!', 'success');
+        closeModal('login-modal');
+        setTimeout(() => {
+          if (user.role === 'admin') window.location.href = '/admin-dashboard.html';
+          else window.location.reload();
+        }, 500);
+      } catch (err) {
+        toast(err.message, 'error');
+        btn.disabled = false; btn.textContent = 'Sign In';
+      }
+    });
+
+    // ─── Signup handler ────────────────────────────────────
+    document.getElementById('signup-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const pwd = document.getElementById('signup-password').value;
+      const confirm = document.getElementById('signup-confirm').value;
+      if (pwd !== confirm) { toast('Passwords do not match', 'error'); return; }
+
+      const btn = document.getElementById('signup-btn');
+      btn.disabled = true; btn.innerHTML = '<span class="spinner spinner-dark"></span> Creating…';
+      try {
+        const { access_token, user } = await authAPI.register({
+          full_name: document.getElementById('signup-name').value.trim(),
+          email: document.getElementById('signup-email').value.trim(),
+          password: pwd,
+          confirm_password: confirm,
+          branch: document.getElementById('signup-branch').value.trim(),
+          semester: parseInt(document.getElementById('signup-semester').value),
+        });
+        setAuth(access_token, user);
+        toast('Account created! 🎉', 'success');
+        closeModal('signup-modal');
+        setTimeout(() => window.location.reload(), 500);
+      } catch (err) {
+        toast(err.message, 'error');
+        btn.disabled = false; btn.textContent = 'Create Account';
+      }
+    });
+
+    // Close modals on overlay click
+    document.querySelectorAll('.modal-overlay').forEach(o =>
+      o.addEventListener('click', e => { if (e.target === o) o.classList.remove('open'); })
+    );
+
+    init();
+  </script>
+</body>
+
+</html>

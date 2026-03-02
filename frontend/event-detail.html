@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Event Details — EventHub</title>
+    <link rel="stylesheet" href="/css/style.css" />
+</head>
+
+<body>
+    <nav>
+        <div class="container nav-inner">
+            <a href="/" class="nav-logo">⚡ EventHub</a>
+            <div class="nav-links" id="nav-auth"></div>
+        </div>
+    </nav>
+
+    <div class="container page-content">
+        <div id="loading" style="text-align:center;padding:5rem">
+            <div class="spinner"></div>
+        </div>
+
+        <div id="content" class="hidden">
+            <div style="max-width:800px;margin:0 auto">
+                <a href="javascript:history.back()" class="btn btn-secondary btn-sm mb-3" style="display:inline-flex">←
+                    Back</a>
+
+                <!-- Header -->
+                <div class="flex justify-between items-start mb-3" style="flex-wrap:wrap;gap:1rem">
+                    <div>
+                        <div id="cat-chip"></div>
+                        <h1 id="title" style="margin-top:0.4rem"></h1>
+                        <p class="text-muted" style="font-size:1rem" id="club-source"></p>
+                    </div>
+                    <div id="action-zone"></div>
+                </div>
+
+                <div class="dash-grid">
+                    <div class="dash-sidebar">
+                        <div class="card">
+                            <h3 class="mb-2">Event Info</h3>
+                            <div class="modal-stack" style="font-size:0.88rem">
+                                <div><span class="text-muted">📅 Date:</span> <span id="out-date"></span></div>
+                                <div><span class="text-muted">📍 Venue:</span> <span id="out-venue"></span></div>
+                                <div><span class="text-muted">🏷️ Type:</span> <span id="out-category"></span></div>
+                                <div class="seat-progress mt-2">
+                                    <div class="flex justify-between mb-1">
+                                        <span class="text-muted" style="font-size:0.82rem">Seat Availability</span>
+                                        <span id="seat-label" style="font-weight:700;font-size:0.85rem"></span>
+                                    </div>
+                                    <div class="seat-progress-bar">
+                                        <div id="seat-fill" class="seat-progress-fill"></div>
+                                    </div>
+                                    <div class="seat-progress-label">
+                                        <span id="seat-filled-label">0 filled</span>
+                                        <span id="seat-total-label">0 total</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="main-content">
+                        <div class="card">
+                            <h3 class="mb-2">Description</h3>
+                            <p id="description" style="white-space:pre-wrap;color:var(--text-primary)"></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast-container"></div>
+
+    <script type="module">
+        import { eventsAPI, registrationsAPI, isLoggedIn, getUser, isAdmin } from '/js/api.js';
+        import { updateNav, formatDate, categoryChip, seatColor, toast } from '/js/ui.js';
+
+        updateNav();
+
+        const params = new URLSearchParams(location.search);
+        const eventId = params.get('id');
+        let currentEvent = null;
+        let myRegistration = null;
+
+        async function init() {
+            if (!eventId) { window.location.href = '/'; return; }
+            try {
+                const event = await eventsAPI.get(eventId);
+                currentEvent = event;
+
+                if (isLoggedIn()) {
+                    const regs = await registrationsAPI.myRegistrations();
+                    myRegistration = regs.find(r => r.event_id === eventId);
+                }
+
+                render();
+            } catch (e) {
+                document.getElementById('loading').innerHTML = `<p class="text-danger">${e.message}</p>`;
+            }
+        }
+
+        function render() {
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('content').classList.remove('hidden');
+
+            document.title = `${currentEvent.title} — EventHub`;
+            document.getElementById('title').textContent = currentEvent.title;
+            document.getElementById('cat-chip').innerHTML = categoryChip(currentEvent.category);
+            document.getElementById('club-source').textContent = `Hosted by ${currentEvent.clubs?.name || 'Club'}`;
+            document.getElementById('out-date').textContent = formatDate(currentEvent.event_date);
+            document.getElementById('out-venue').textContent = currentEvent.venue || 'To be announced';
+            document.getElementById('out-category').textContent = currentEvent.category;
+            document.getElementById('description').textContent = currentEvent.description || 'No description provided.';
+
+            // Seat progress bar
+            const total = currentEvent.total_seats || 1;
+            const avail = currentEvent.available_seats;
+            const filled = total - avail;
+            const fillPct = Math.round((filled / total) * 100);
+            const color = seatColor(avail, total);
+
+            document.getElementById('seat-label').textContent = `${avail} / ${total} available`;
+            const fillEl = document.getElementById('seat-fill');
+            fillEl.style.width = `${fillPct}%`;
+            fillEl.className = `seat-progress-fill ${color}`;
+            document.getElementById('seat-filled-label').textContent = `${filled} filled`;
+            document.getElementById('seat-total-label').textContent = `${total} total`;
+
+            // Action buttons
+            const zone = document.getElementById('action-zone');
+            const userObj = getUser();
+            const isAdminUser = userObj && userObj.role === 'admin';
+
+            if (isAdminUser) {
+                zone.innerHTML = `<span class="chip chip-muted">Admin View</span>`;
+            } else if (myRegistration) {
+                zone.innerHTML = `
+                    <div class="flex gap-1 items-center">
+                        <span class="chip chip-success">✓ Registered</span>
+                        <button class="btn btn-danger btn-sm" onclick="cancelMe()">Cancel</button>
+                    </div>`;
+            } else if (!currentEvent.is_active) {
+                zone.innerHTML = `<button class="btn btn-secondary" disabled>Event Inactive</button>`;
+            } else if (avail <= 0) {
+                zone.innerHTML = `<button class="btn btn-secondary" disabled>Sold Out</button>`;
+            } else if (!isLoggedIn()) {
+                zone.innerHTML = `<button class="btn btn-primary" onclick="window.location='/'">Login to Register</button>`;
+            } else {
+                zone.innerHTML = `<button class="btn btn-primary" id="reg-btn" onclick="registerMe()">Register Now</button>`;
+            }
+        }
+
+        window.registerMe = async () => {
+            const btn = document.getElementById('reg-btn');
+            btn.disabled = true; btn.innerHTML = '<div class="spinner spinner-dark"></div> Booking…';
+            try {
+                await registrationsAPI.register(eventId);
+                toast('Successfully registered! 🎉', 'success');
+                setTimeout(() => location.reload(), 1000);
+            } catch (err) {
+                toast(err.message, 'error');
+                btn.disabled = false; btn.textContent = 'Register Now';
+            }
+        };
+
+        window.cancelMe = async () => {
+            if (!confirm('Cancel your registration for this event?')) return;
+            try {
+                await registrationsAPI.cancel(myRegistration.id);
+                toast('Registration cancelled.', 'info');
+                setTimeout(() => location.reload(), 1000);
+            } catch (err) { toast(err.message, 'error'); }
+        };
+
+        init();
+    </script>
+</body>
+
+</html>

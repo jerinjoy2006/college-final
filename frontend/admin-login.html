@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Login — EventHub</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+
+<body>
+  <nav>
+    <div class="container nav-inner">
+      <a href="/" class="nav-logo">⚡ EventHub</a>
+      <div class="nav-links">
+        <a href="/">← Back to Home</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="container page-content" style="max-width:450px; margin-top: 4rem;">
+    <div class="card">
+      <div class="section-header mb-2" style="text-align: center; display: block;">
+        <h2>Admin Login</h2>
+        <p class="text-muted">Sign in to manage and create events</p>
+      </div>
+      
+      <form id="login-form" class="modal-stack">
+        <div class="form-group">
+          <label>Email</label>
+          <input class="form-control" id="login-email" type="email" placeholder="admin@college.edu" required />
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <div class="password-wrap">
+            <input class="form-control" id="login-password" type="password" placeholder="••••••••" required />
+            <button type="button" class="password-toggle" onclick="togglePassword('login-password', this)">👁️</button>
+          </div>
+        </div>
+        <button class="btn btn-primary btn-block" type="submit" id="login-btn">Sign In as Admin</button>
+      </form>
+    </div>
+  </div>
+
+  <div id="toast-container"></div>
+
+  <script type="module">
+    import { authAPI, setAuth, isLoggedIn, isAdmin } from '/js/api.js';
+    import { toast } from '/js/ui.js';
+
+    // Redirect if already logged in as admin
+    if (isLoggedIn() && isAdmin()) {
+      window.location.href = '/admin-dashboard.html';
+    }
+
+    // Reuse togglePassword from ui.js logic
+    window.togglePassword = function (inputId, btn) {
+      const input = document.getElementById(inputId);
+      if (input.type === 'password') {
+        input.type = 'text';
+        btn.textContent = '🙈';
+      } else {
+        input.type = 'password';
+        btn.textContent = '👁️';
+      }
+    };
+
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('login-btn');
+      btn.disabled = true; btn.innerHTML = '<span class="spinner spinner-dark"></span> Signing in…';
+      try {
+        const { access_token, user } = await authAPI.login({
+          email: document.getElementById('login-email').value.trim(),
+          password: document.getElementById('login-password').value,
+        });
+        
+        if (user.role !== 'admin') {
+            throw new Error('This account does not have admin privileges.');
+        }
+
+        setAuth(access_token, user);
+        toast('Login successful!', 'success');
+        setTimeout(() => {
+          window.location.href = '/admin-dashboard.html';
+        }, 800);
+      } catch (err) {
+        toast(err.message, 'error');
+        btn.disabled = false; btn.textContent = 'Sign In as Admin';
+      }
+    });
+  </script>
+</body>
+
+</html>

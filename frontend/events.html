@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Events — EventHub</title>
+    <link rel="stylesheet" href="/css/style.css" />
+</head>
+
+<body>
+    <nav>
+        <div class="container nav-inner">
+            <a href="/" class="nav-logo">⚡ EventHub</a>
+            <div class="nav-links" id="nav-auth"></div>
+        </div>
+    </nav>
+
+    <div class="container page-content">
+        <div class="section-header mb-2">
+            <div class="flex gap-1 items-center">
+                <button class="calendar-icon-btn" id="cal-toggle" onclick="toggleCalendar()">📅 Calendar</button>
+                <h2>Upcoming Events</h2>
+            </div>
+        </div>
+
+        <div class="flex gap-2" style="align-items:flex-start">
+            <!-- Calendar panel (hidden by default) -->
+            <div id="calendar-panel" class="calendar-panel hidden" style="flex-shrink:0"></div>
+
+            <div style="flex:1;min-width:0">
+                <!-- FILTERS -->
+                <div class="filters-bar">
+                    <div class="form-group">
+                        <label>Search</label>
+                        <input class="form-control" id="search" placeholder="Event name…" />
+                    </div>
+                    <div class="form-group">
+                        <label>Category</label>
+                        <select class="form-control" id="cat">
+                            <option value="">All</option>
+                            <option>Coding</option>
+                            <option>Robotics</option>
+                            <option>Design</option>
+                            <option>Music</option>
+                            <option>Sports</option>
+                            <option>Cultural</option>
+                            <option>Science</option>
+                            <option>Business</option>
+                            <option>Workshop</option>
+                            <option>Other</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Club</label>
+                        <select class="form-control" id="club-filter">
+                            <option value="">All Clubs</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="justify-content:flex-end">
+                        <label>&nbsp;</label>
+                        <label
+                            style="display:flex;align-items:center;gap:0.4rem;cursor:pointer;color:var(--text-secondary);font-size:0.82rem">
+                            <input type="checkbox" id="avail-only"> Available only
+                        </label>
+                    </div>
+                    <button class="btn btn-primary btn-sm" onclick="loadEvents()">🔍</button>
+                    <button class="btn btn-secondary btn-sm" onclick="clearFilters()">Clear</button>
+                </div>
+
+                <!-- EVENT GRID -->
+                <div class="events-grid" id="events-grid">
+                    <div style="grid-column:1/-1;text-align:center;padding:3rem;color:var(--text-muted)">
+                        <div class="spinner"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast-container"></div>
+
+    <script type="module">
+        import { eventsAPI, clubsAPI, registrationsAPI, isLoggedIn } from '/js/api.js';
+        import { updateNav, buildEventCard, renderCalendar, toast } from '/js/ui.js';
+
+        updateNav();
+        if (!isLoggedIn()) { window.location.href = '/'; }
+
+        let registeredIds = new Set();
+        let allEvents = [];
+        let calYear, calMonth;
+        const now = new Date();
+        calYear = now.getFullYear();
+        calMonth = now.getMonth();
+
+        async function init() {
+            try {
+                const regs = await registrationsAPI.myRegistrations();
+                regs.forEach(r => registeredIds.add(r.event_id));
+            } catch { }
+
+            try {
+                const clubs = await clubsAPI.list();
+                const sel = document.getElementById('club-filter');
+                clubs.forEach(c => {
+                    const o = document.createElement('option');
+                    o.value = c.id; o.textContent = c.name;
+                    sel.appendChild(o);
+                });
+            } catch { }
+
+            allEvents = await eventsAPI.list().catch(() => []);
+            renderCal();
+            await loadEvents();
+        }
+
+        function renderCal() {
+            const panel = document.getElementById('calendar-panel');
+            renderCalendar(panel, calYear, calMonth, allEvents, (day, events) => {
+                if (events.length === 1) {
+                    window.location.href = `/event-detail.html?id=${events[0].id}`;
+                } else {
+                    // Filter events grid to that day
+                    toast(`${events.length} events on this day`, 'info');
+                }
+            });
+        }
+
+        window.calendarNav = function (dir) {
+            calMonth += dir;
+            if (calMonth < 0) { calMonth = 11; calYear--; }
+            if (calMonth > 11) { calMonth = 0; calYear++; }
+            renderCal();
+        };
+
+        window.toggleCalendar = function () {
+            document.getElementById('calendar-panel').classList.toggle('hidden');
+        };
+
+        window.loadEvents = async function () {
+            const grid = document.getElementById('events-grid');
+            grid.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:3rem;color:var(--text-muted)"><div class="spinner"></div></div>`;
+            try {
+                const params = {
+                    search: document.getElementById('search').value.trim() || undefined,
+                    category: document.getElementById('cat').value || undefined,
+                    club_id: document.getElementById('club-filter').value || undefined,
+                    available_only: document.getElementById('avail-only').checked || undefined,
+                };
+                const events = await eventsAPI.list(params);
+                if (!events.length) {
+                    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><div class="empty-icon">📭</div><h3>No events found</h3></div>`;
+                    return;
+                }
+                grid.innerHTML = events.map(e => buildEventCard(e, registeredIds)).join('');
+            } catch (e) {
+                grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><p>${e.message}</p></div>`;
+            }
+        };
+
+        window.clearFilters = function () {
+            document.getElementById('search').value = '';
+            document.getElementById('cat').value = '';
+            document.getElementById('club-filter').value = '';
+            document.getElementById('avail-only').checked = false;
+            loadEvents();
+        };
+
+        let typingTimer;
+        document.getElementById('search').addEventListener('input', () => {
+            clearTimeout(typingTimer);
+            typingTimer = setTimeout(loadEvents, 400);
+        });
+        ['cat', 'club-filter', 'avail-only'].forEach(id =>
+            document.getElementById(id).addEventListener('change', loadEvents));
+
+        init();
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Admin Dashboard — EventHub</title>
+    <link rel="stylesheet" href="/css/style.css" />
+</head>
+
+<body>
+    <nav>
+        <div class="container nav-inner">
+            <a href="/" class="nav-logo">⚡ EventHub</a>
+            <div class="nav-links" id="nav-auth"></div>
+        </div>
+    </nav>
+
+    <div class="container page-content">
+        <div class="section-header mb-3">
+            <div>
+                <h2>Admin Dashboard</h2>
+                <p class="text-muted" id="welcome-msg"></p>
+            </div>
+            <a href="/create-event.html" class="btn btn-primary">+ New Event</a>
+        </div>
+
+        <!-- Stats -->
+        <div class="stat-row" id="stats-row">
+            <div class="card stat-card">
+                <div class="stat-num" id="stat-events">0</div>
+                <div class="stat-lbl">My Events</div>
+            </div>
+            <div class="card stat-card">
+                <div class="stat-num" id="stat-clubs">0</div>
+                <div class="stat-lbl">My Clubs</div>
+            </div>
+            <div class="card stat-card">
+                <div class="stat-num" id="stat-regs">0</div>
+                <div class="stat-lbl">Total Registrations</div>
+            </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="tabs mb-3" style="max-width:400px">
+            <button class="tab-btn active" id="tab-events" onclick="switchTab('events')">My Events</button>
+            <button class="tab-btn" id="tab-clubs" onclick="switchTab('clubs')">My Clubs</button>
+        </div>
+
+        <div id="main-content"></div>
+    </div>
+
+    <!-- Club create modal -->
+    <div class="modal-overlay" id="club-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Create Club</h3>
+                <button class="modal-close" onclick="closeModal('club-modal')">×</button>
+            </div>
+            <div class="modal-stack">
+                <div class="form-group">
+                    <label>Club Name</label>
+                    <input class="form-control" id="club-name" placeholder="Coding Club" />
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <textarea class="form-control" id="club-desc" rows="3" placeholder="About the club…"></textarea>
+                </div>
+                <button class="btn btn-primary btn-block" onclick="createClub()">Create Club</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Registrations modal -->
+    <div class="modal-overlay" id="reg-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="reg-modal-title">Registrations</h3>
+                <button class="modal-close" onclick="closeModal('reg-modal')">×</button>
+            </div>
+            <div id="reg-modal-body" class="table-wrap"></div>
+        </div>
+    </div>
+
+    <div id="toast-container"></div>
+    <script type="module">
+        import { eventsAPI, clubsAPI, registrationsAPI, isLoggedIn, isAdmin, getUser } from '/js/api.js';
+        import { updateNav, formatDate, seatChip, toast } from '/js/ui.js';
+
+        updateNav();
+        if (!isLoggedIn()) { window.location.href = '/'; }
+        if (!isAdmin()) { window.location.href = '/events.html'; }
+
+        const user = getUser();
+        document.getElementById('welcome-msg').textContent = `Hello, ${user?.full_name || 'Admin'} ⚙️`;
+
+        let currentTab = 'events';
+        let myClubs = [];
+        let myEvents = [];
+
+        async function init() {
+            const el = document.getElementById('main-content');
+            el.innerHTML = '<div style="text-align:center;padding:3rem"><div class="spinner"></div><p class="text-muted mt-1">Loading dashboard data...</p></div>';
+            
+            const u = getUser();
+            if (!u || !u.id) {
+                toast('User session not found. Please log in again.', 'error');
+                window.location.href = '/admin-login.html';
+                return;
+            }
+
+            try {
+                const [allClubs, allEvents] = await Promise.all([
+                    clubsAPI.list().catch(err => { console.error('Clubs error:', err); return []; }),
+                    eventsAPI.list().catch(err => { console.error('Events error:', err); return []; })
+                ]);
+                
+                myClubs = allClubs.filter(c => c.admin_id === u.id);
+                const myClubIds = new Set(myClubs.map(c => c.id));
+                myEvents = allEvents.filter(e => myClubIds.has(e.club_id));
+
+                document.getElementById('stat-events').textContent = myEvents.length || 0;
+                document.getElementById('stat-clubs').textContent = myClubs.length || 0;
+
+                let totalRegs = 0;
+                myEvents.forEach(e => {
+                    const available = e.available_seats || 0;
+                    const total = e.total_seats || 0;
+                    totalRegs += (total - available);
+                });
+                document.getElementById('stat-regs').textContent = totalRegs;
+
+                renderTab();
+            } catch (e) {
+                console.error('Dashboard init failed:', e);
+                el.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><h3>Something went wrong</h3><p>${e.message}</p><button class="btn btn-secondary mt-2" onclick="init()">Retry</button></div>`;
+            }
+        }
+
+        window.switchTab = function (tab) {
+            currentTab = tab;
+            ['events', 'clubs'].forEach(t => document.getElementById(`tab-${t}`).classList.toggle('active', t === tab));
+            renderTab();
+        };
+
+        function renderTab() {
+            if (currentTab === 'events') renderEvents();
+            else renderClubs();
+        }
+
+        function renderEvents() {
+            const el = document.getElementById('main-content');
+            if (!myEvents.length) {
+                el.innerHTML = `<div class="empty-state"><div class="empty-icon">📋</div><h3>No events yet</h3><p>Create your first event.</p><a href="/create-event.html" class="btn btn-primary mt-2">+ Create Event</a></div>`;
+                return;
+            }
+            el.innerHTML = `
+        <div class="card">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Title</th><th>Club</th><th>Date</th><th>Seats</th><th>Status</th><th>Actions</th></tr></thead>
+              <tbody>${myEvents.map(ev => `
+                <tr>
+                  <td style="font-weight:600;max-width:200px">${ev.title}</td>
+                  <td class="text-muted">${ev.clubs?.name || '—'}</td>
+                  <td class="text-muted" style="white-space:nowrap">${formatDate(ev.event_date)}</td>
+                  <td>${seatChip(ev.available_seats, ev.total_seats)}</td>
+                  <td><span class="chip ${ev.is_active ? 'chip-success' : 'chip-muted'}">${ev.is_active ? 'Active' : 'Inactive'}</span></td>
+                  <td>
+                    <div class="flex gap-1">
+                      <button class="btn btn-secondary btn-sm" onclick="viewRegs('${ev.id}','${ev.title.replace(/'/g, '')}')">👥 Regs</button>
+                      <a href="/create-event.html?id=${ev.id}" class="btn btn-secondary btn-sm">✏️ Edit</a>
+                      ${ev.is_active ? `<button class="btn btn-danger btn-sm" onclick="deactivate('${ev.id}')">Deactivate</button>` : ''}
+                    </div>
+                  </td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>`;
+        }
+
+        function renderClubs() {
+            const el = document.getElementById('main-content');
+            const html = myClubs.length ?
+                myClubs.map(c => `
+          <div class="card mb-2">
+            <div class="section-header">
+              <div><h3>${c.name}</h3><p style="font-size:0.85rem">${c.description || 'No description.'}</p></div>
+              <span class="chip chip-accent">Your Club</span>
+            </div>
+          </div>`).join('')
+                : `<div class="empty-state"><div class="empty-icon">🏫</div><h3>No clubs yet</h3><p>Create a club to start publishing events.</p></div>`;
+            el.innerHTML = html + `<button class="btn btn-primary mt-3" onclick="openModal('club-modal')">+ Create Club</button>`;
+        }
+
+        window.createClub = async function () {
+            const name = document.getElementById('club-name').value.trim();
+            const desc = document.getElementById('club-desc').value.trim();
+            if (!name) { toast('Club name is required', 'error'); return; }
+            try {
+                await clubsAPI.create({ name, description: desc });
+                toast('Club created! 🎉', 'success');
+                closeModal('club-modal');
+                await init();
+                switchTab('clubs');
+            } catch (e) { toast(e.message, 'error'); }
+        };
+
+        window.deactivate = async function (eventId) {
+            if (!confirm('Deactivate this event?')) return;
+            try {
+                await eventsAPI.delete(eventId);
+                toast('Event deactivated.', 'info');
+                await init();
+            } catch (e) { toast(e.message, 'error'); }
+        };
+
+        window.viewRegs = async function (eventId, title) {
+            document.getElementById('reg-modal-title').textContent = `Registrations — ${title}`;
+            document.getElementById('reg-modal-body').innerHTML = '<div style="text-align:center;padding:2rem"><div class="spinner"></div></div>';
+            openModal('reg-modal');
+            try {
+                const regs = await registrationsAPI.eventRegistrations(eventId);
+                if (!regs.length) {
+                    document.getElementById('reg-modal-body').innerHTML = '<div class="empty-state"><p>No registrations yet.</p></div>';
+                    return;
+                }
+                document.getElementById('reg-modal-body').innerHTML = `
+          <table>
+            <thead><tr><th>#</th><th>Name</th><th>Email</th><th>Registered</th></tr></thead>
+            <tbody>${regs.map((r, i) => `<tr><td class="text-muted">${i + 1}</td><td>${r.users?.full_name || '—'}</td><td class="text-muted">${r.users?.email || '—'}</td><td class="text-muted">${formatDate(r.registered_at)}</td></tr>`).join('')}</tbody>
+          </table>`;
+            } catch (e) {
+                document.getElementById('reg-modal-body').innerHTML = `<div class="empty-state"><p>${e.message}</p></div>`;
+            }
+        };
+
+        // Close modals on overlay click
+        document.querySelectorAll('.modal-overlay').forEach(o => o.addEventListener('click', e => { if (e.target === o) o.classList.remove('open'); }));
+
+        init();
+    </script>
+</body>
+
+</html>

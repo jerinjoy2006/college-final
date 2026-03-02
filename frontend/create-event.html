@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Create Event — EventHub</title>
+    <link rel="stylesheet" href="/css/style.css" />
+</head>
+
+<body>
+    <nav>
+        <div class="container nav-inner">
+            <a href="/" class="nav-logo">⚡ EventHub</a>
+            <div class="nav-links" id="nav-auth"></div>
+        </div>
+    </nav>
+
+    <div class="container page-content">
+        <div style="max-width:640px;margin:0 auto">
+            <a href="/admin-dashboard.html" class="btn btn-secondary btn-sm mb-3" style="display:inline-flex">←
+                Dashboard</a>
+            <div class="card">
+                <h2 id="form-title" style="margin-bottom:0.3rem">Create New Event</h2>
+                <p class="text-muted mb-3" id="form-sub">Fill in the details to publish a new event for your club.</p>
+
+                <form id="event-form" class="modal-stack" style="gap:1rem">
+                    <div class="form-group">
+                        <label>Event Title *</label>
+                        <input class="form-control" id="title" placeholder="e.g. Hackathon 2026" required />
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.85rem">
+                        <div class="form-group">
+                            <label>Category *</label>
+                            <select class="form-control" id="category">
+                                <option>Coding</option>
+                                <option>Robotics</option>
+                                <option>Design</option>
+                                <option>Music</option>
+                                <option>Sports</option>
+                                <option>Cultural</option>
+                                <option>Science</option>
+                                <option>Business</option>
+                                <option>Workshop</option>
+                                <option>Other</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Club *</label>
+                            <select class="form-control" id="club_id">
+                                <option value="">Loading…</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Description</label>
+                        <textarea class="form-control" id="description" rows="4"
+                            placeholder="Describe the event…"></textarea>
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.85rem">
+                        <div class="form-group">
+                            <label>Date & Time *</label>
+                            <input type="datetime-local" class="form-control" id="event_date" required />
+                        </div>
+                        <div class="form-group">
+                            <label>Venue</label>
+                            <input class="form-control" id="venue" placeholder="e.g. CS Block Auditorium" />
+                        </div>
+                    </div>
+                    <div class="form-group" style="max-width:200px">
+                        <label>Total Seats *</label>
+                        <input type="number" class="form-control" id="total_seats" min="1" placeholder="50" required />
+                    </div>
+                    <div class="flex gap-1 items-center">
+                        <button class="btn btn-primary" type="submit" id="submit-btn">Publish Event</button>
+                        <a href="/admin-dashboard.html" class="btn btn-secondary">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast-container"></div>
+    <script type="module">
+        import { eventsAPI, clubsAPI, isLoggedIn, isAdmin, getUser } from '/js/api.js';
+        import { updateNav, toast } from '/js/ui.js';
+
+        updateNav();
+        if (!isLoggedIn()) { window.location.href = '/'; }
+        else if (!isAdmin()) { window.location.href = '/'; }
+        else {
+            const user = getUser();
+            const params = new URLSearchParams(location.search);
+            const editId = params.get('id');
+            let existingEvent = null;
+
+            async function init() {
+                try {
+                    const clubs = await clubsAPI.list();
+                    const myClubs = clubs.filter(c => c.admin_id === user.id);
+                    const sel = document.getElementById('club_id');
+                    if (!myClubs.length) {
+                        sel.innerHTML = '<option value="">No clubs owned — create one in Dashboard</option>';
+                    } else {
+                        sel.innerHTML = myClubs.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+                    }
+                } catch (e) {
+                    document.getElementById('club_id').innerHTML = `<option value="">Error loading clubs</option>`;
+                    toast('Failed to load clubs: ' + e.message, 'error');
+                }
+
+                if (editId) {
+                    document.getElementById('form-title').textContent = 'Edit Event';
+                    document.getElementById('form-sub').textContent = 'Update the event details.';
+                    document.getElementById('submit-btn').textContent = 'Save Changes';
+                    try {
+                        existingEvent = await eventsAPI.get(editId);
+                        document.getElementById('title').value = existingEvent.title;
+                        document.getElementById('description').value = existingEvent.description || '';
+                        document.getElementById('category').value = existingEvent.category;
+                        document.getElementById('venue').value = existingEvent.venue || '';
+                        document.getElementById('total_seats').value = existingEvent.total_seats;
+                        document.getElementById('club_id').value = existingEvent.club_id;
+                        const d = new Date(existingEvent.event_date);
+                        document.getElementById('event_date').value = d.toISOString().slice(0, 16);
+                    } catch (e) {
+                        toast('Failed to load event: ' + e.message, 'error');
+                    }
+                }
+            }
+
+            document.getElementById('event-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const btn = document.getElementById('submit-btn');
+                btn.disabled = true;
+                btn.innerHTML = '<span class="spinner spinner-dark"></span> Saving…';
+
+                const body = {
+                    title: document.getElementById('title').value.trim(),
+                    description: document.getElementById('description').value.trim() || null,
+                    category: document.getElementById('category').value,
+                    event_date: new Date(document.getElementById('event_date').value).toISOString(),
+                    venue: document.getElementById('venue').value.trim() || null,
+                    total_seats: parseInt(document.getElementById('total_seats').value),
+                    club_id: document.getElementById('club_id').value,
+                };
+
+                try {
+                    if (editId) {
+                        await eventsAPI.update(editId, body);
+                        toast('Event updated! ✅', 'success');
+                    } else {
+                        await eventsAPI.create(body);
+                        toast('Event published! 🎉', 'success');
+                    }
+                    setTimeout(() => window.location.href = '/admin-dashboard.html', 700);
+                } catch (err) {
+                    toast(err.message, 'error');
+                    btn.disabled = false;
+                    btn.textContent = editId ? 'Save Changes' : 'Publish Event';
+                }
+            });
+
+            init();
+        }
+    </script>
+</body>
+
+</html>
